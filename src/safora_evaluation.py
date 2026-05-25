@@ -3,77 +3,92 @@ import joblib
 import pandas as pd
 import matplotlib.pyplot as plt
 
-from sklearn.model_selection import train_test_split
 from sklearn.metrics import (
-    roc_auc_score,
-    average_precision_score,
+    confusion_matrix,
+    ConfusionMatrixDisplay,
+    classification_report,
     precision_score,
     recall_score,
     f1_score,
-    confusion_matrix,
-    classification_report,
+    roc_auc_score,
+    average_precision_score,
     roc_curve,
     precision_recall_curve,
-    ConfusionMatrixDisplay
 )
 
 
 DATA_PATH = "data/processed/8May_labeled_model_ready_cgm_30patient_subset.csv"
-MODEL_DIR = "results/models"
-OUTPUT_DIR = "results/safora_evaluation"
+RESULTS_DIR = "results/safora_evaluation"
+METRICS_DIR = "results/metrics"
+MODELS_DIR = "results/models"
 
-os.makedirs(OUTPUT_DIR, exist_ok=True)
-
-FEATURE_COLS = [
-    "glucose_t_minus_55",
-    "glucose_t_minus_50",
-    "glucose_t_minus_45",
-    "glucose_t_minus_40",
-    "glucose_t_minus_35",
-    "glucose_t_minus_30",
-    "glucose_t_minus_25",
-    "glucose_t_minus_20",
-    "glucose_t_minus_15",
-    "glucose_t_minus_10",
-    "glucose_t_minus_5",
-    "glucose_t_0",
-    "glucose_rolling_mean_60min",
-    "glucose_slope_60min"
-]
+MODELS = {
+    "Logistic Regression": os.path.join(MODELS_DIR, "logistic_regression.pkl"),
+    "Random Forest": os.path.join(MODELS_DIR, "random_forest.pkl"),
+    "Gradient Boosting": os.path.join(MODELS_DIR, "gradient_boosting.pkl"),
+    "RUSBoost": os.path.join(MODELS_DIR, "rusboost.pkl"),
+}
 
 
-def load_test_data():
-    df = pd.read_csv(DATA_PATH)
-
-    X = df[FEATURE_COLS]
-    y = df["label"]
-
-    X_train, X_test, y_train, y_test = train_test_split(
-        X,
-        y,
-        test_size=0.2,
-        random_state=42,
-        stratify=y
-    )
-
-    return X_test, y_test
+def clean_filename(name):
+    return name.lower().replace(" ", "_")
 
 
-def evaluate_model(model_name, model_path, X_test, y_test):
-    model = joblib.load(model_path)
+def load_data():
+    data = pd.read_csv(DATA_PATH)
 
-    y_pred = model.predict(X_test)
-    y_prob = model.predict_proba(X_test)[:, 1]
+    if "hypoglycemia_event" in data.columns:
+        target_col = "hypoglycemia_event"
+    elif "label" in data.columns:
+        target_col = "label"
+    elif "target" in data.columns:
+        target_col = "target"
+    else:
+        raise ValueError("Could not find target column.")
 
-    roc_auc = roc_auc_score(y_test, y_prob)
-    pr_auc = average_precision_score(y_test, y_prob)
-    precision = precision_score(y_test, y_pred, zero_division=0)
-    recall = recall_score(y_test, y_pred)
-    f1 = f1_score(y_test, y_pred)
+    y = data[target_col]
+
+    drop_cols = [target_col]
+
+    if "patient_id" in data.columns:
+        drop_cols.append("patient_id")
+
+    if "timestamp_numeric" in data.columns:
+        drop_cols.append("timestamp_numeric")
+
+    if "timestamp" in data.columns:
+        drop_cols.append("timestamp")
+
+    X = data.drop(columns=drop_cols)
+
+    return X, y
+
+
+def evaluate_model(model_name, model_path, X, y):
+    if not os.path.exists(model_path):
+        print(f"Skipping {model_name}: model file not found at {model_path}")
+        return None
 
     print("\n" + "=" * 60)
     print(model_name)
     print("=" * 60)
+
+    model = joblib.load(model_path)
+
+    y_pred = model.predict(X)
+
+    if hasattr(model, "predict_proba"):
+        y_prob = model.predict_proba(X)[:, 1]
+    elif hasattr(model, "decision_function"):
+        y_prob = model.decision_function(X)
+    else:
+        raise ValueError(f"{model_name} does not provide probability scores.")
+
+    roc_auc = roc_auc_score(y, y_prob)
+    pr_auc = average_precision_score(y, y_prob)
+    precision = precision_score(y, y_pred)
+    recall = recall_score(y, y_pred)
+    f1 = f1_score(y, y_pred)
 
     print(f"ROC AUC: {roc_auc:.3f}")
     print(f"PR AUC: {pr_auc:.3f}")
@@ -81,43 +96,55 @@ def evaluate_model(model_name, model_path, X_test, y_test):
     print(f"Recall/Sensitivity: {recall:.3f}")
     print(f"F1 Score: {f1:.3f}")
 
+    cm = confusion_matrix(y, y_pred)
+
     print("\nConfusion Matrix:")
-    print(confusion_matrix(y_test, y_pred))
+    print(cm)
 
     print("\nClassification Report:")
-    print(classification_report(y_test, y_pred))
+    print(classification_report(y, y_pred))
 
-    safe_name = model_name.lower().replace(" ", "_").replace(".", "")
+    file_name = clean_filename(model_name)
 
-    # ROC curve
-    fpr, tpr, _ = roc_curve(y_test, y_prob)
+    disp = ConfusionMatrixDisplay(confusion_matrix=cm)
+    disp.plot()
+    plt.title(f"{model_name} Confusion Matrix")
+    plt.tight_layout()
+    plt.savefig(
+        os.path.join(RESULTS_DIR, f"{file_name}_confusion_matrix.png"),
+        dpi=300,
+    )
+    plt.close()
 
-    plt.figure()
-    plt.plot(fpr, tpr)
+    fpr, tpr, _ = roc_curve(y, y_prob)
+
+    plt.figure(figsize=(7, 6))
+    plt.plot(fpr, tpr, label=f"ROC AUC = {roc_auc:.3f}")
+    plt.plot([0, 1], [0, 1], linestyle="--", label="Random Classifier")
     plt.xlabel("False Positive Rate")
     plt.ylabel("True Positive Rate")
     plt.title(f"{model_name} ROC Curve")
-    plt.savefig(f"{OUTPUT_DIR}/{safe_name}_roc_curve.png")
+    plt.legend(loc="lower right")
+    plt.tight_layout()
+    plt.savefig(
+        os.path.join(RESULTS_DIR, f"{file_name}_roc_curve.png"),
+        dpi=300,
+    )
     plt.close()
 
-    # Precision-recall curve
-    precision_curve, recall_curve, _ = precision_recall_curve(y_test, y_prob)
+    precision_curve, recall_curve, _ = precision_recall_curve(y, y_prob)
 
-    plt.figure()
-    plt.plot(recall_curve, precision_curve)
+    plt.figure(figsize=(7, 6))
+    plt.plot(recall_curve, precision_curve, label=f"PR AUC = {pr_auc:.3f}")
     plt.xlabel("Recall")
     plt.ylabel("Precision")
     plt.title(f"{model_name} Precision-Recall Curve")
-    plt.savefig(f"{OUTPUT_DIR}/{safe_name}_pr_curve.png")
-    plt.close()
-
-    # Confusion matrix plot
-    cm = confusion_matrix(y_test, y_pred)
-    disp = ConfusionMatrixDisplay(confusion_matrix=cm)
-
-    disp.plot()
-    plt.title(f"{model_name} Confusion Matrix")
-    plt.savefig(f"{OUTPUT_DIR}/{safe_name}_confusion_matrix.png")
+    plt.legend(loc="upper right")
+    plt.tight_layout()
+    plt.savefig(
+        os.path.join(RESULTS_DIR, f"{file_name}_pr_curve.png"),
+        dpi=300,
+    )
     plt.close()
 
     return {
@@ -126,38 +153,46 @@ def evaluate_model(model_name, model_path, X_test, y_test):
         "PR_AUC": round(pr_auc, 3),
         "Precision": round(precision, 3),
         "Recall_Sensitivity": round(recall, 3),
-        "F1": round(f1, 3)
+        "F1": round(f1, 3),
     }
 
 
 def main():
-    X_test, y_test = load_test_data()
+    os.makedirs(RESULTS_DIR, exist_ok=True)
+    os.makedirs(METRICS_DIR, exist_ok=True)
 
-    model_files = {
-        "Logistic Regression": "logistic_regression.pkl",
-        "Random Forest": "random_forest.pkl",
-        "Gradient Boosting": "gradient_boosting.pkl",
-        "RUSBoost": "rusboost.pkl"
-    }
+    X, y = load_data()
 
     results = []
 
-    for model_name, filename in model_files.items():
-        model_path = os.path.join(MODEL_DIR, filename)
-
-        if os.path.exists(model_path):
-            result = evaluate_model(model_name, model_path, X_test, y_test)
+    for model_name, model_path in MODELS.items():
+        result = evaluate_model(model_name, model_path, X, y)
+        if result is not None:
             results.append(result)
-        else:
-            print(f"Skipping {model_name}: model file not found at {model_path}")
 
     results_df = pd.DataFrame(results)
-    results_df.to_csv(f"{OUTPUT_DIR}/safora_model_evaluation_results.csv", index=False)
+
+    safora_results_path = os.path.join(
+        RESULTS_DIR,
+        "safora_model_evaluation_results.csv",
+    )
+
+    model_results_path = os.path.join(
+        METRICS_DIR,
+        "model_results.csv",
+    )
+
+    results_df.to_csv(safora_results_path, index=False)
+    results_df.to_csv(model_results_path, index=False)
 
     print("\nSaved Safora evaluation results to:")
-    print(f"{OUTPUT_DIR}/safora_model_evaluation_results.csv")
+    print(safora_results_path)
+
+    print("\nSaved model results to:")
+    print(model_results_path)
+
     print("\nSaved graphs to:")
-    print(OUTPUT_DIR)
+    print(RESULTS_DIR)
 
 
 if __name__ == "__main__":
