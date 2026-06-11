@@ -31,12 +31,25 @@ MODELS = {
 
 
 def clean_filename(name):
+    """
+    Changes the model name into a cleaner filename.
+
+    This is mostly just so the saved plot names do not have spaces in them.
+    """
     return name.lower().replace(" ", "_")
 
 
 def load_data():
+    """
+    Loads the processed CGM data and separates the labels from the features.
+
+    The model should only get feature columns as input, so this removes the
+    target column and also removes columns like patient_id and timestamp that
+    should not be used directly for prediction.
+    """
     data = pd.read_csv(DATA_PATH)
 
+    # find the target column, since different files may name it slightly differently
     if "hypoglycemia_event" in data.columns:
         target_col = "hypoglycemia_event"
     elif "label" in data.columns:
@@ -48,8 +61,10 @@ def load_data():
 
     y = data[target_col]
 
+    # start by dropping the label column so it is not accidentally used as a feature
     drop_cols = [target_col]
 
+    # these columns are useful for organizing data, but not as direct model inputs
     if "patient_id" in data.columns:
         drop_cols.append("patient_id")
 
@@ -65,6 +80,13 @@ def load_data():
 
 
 def evaluate_model(model_name, model_path, X, y):
+    """
+    Loads one trained model and evaluates how well it predicts hypoglycemia.
+
+    This calculates the main metrics we need for the project, including ROC AUC,
+    PR AUC, precision, recall/sensitivity, F1 score, confusion matrix, and the
+    ROC/precision-recall plots.
+    """
     if not os.path.exists(model_path):
         print(f"Skipping {model_name}: model file not found at {model_path}")
         return None
@@ -73,10 +95,13 @@ def evaluate_model(model_name, model_path, X, y):
     print(model_name)
     print("=" * 60)
 
+    # load the saved model file
     model = joblib.load(model_path)
 
+    # get the class predictions
     y_pred = model.predict(X)
 
+    # get prediction scores/probabilities for ROC and PR curves
     if hasattr(model, "predict_proba"):
         y_prob = model.predict_proba(X)[:, 1]
     elif hasattr(model, "decision_function"):
@@ -84,6 +109,7 @@ def evaluate_model(model_name, model_path, X, y):
     else:
         raise ValueError(f"{model_name} does not provide probability scores.")
 
+    # calculate the main evaluation metrics
     roc_auc = roc_auc_score(y, y_prob)
     pr_auc = average_precision_score(y, y_prob)
     precision = precision_score(y, y_pred)
@@ -106,6 +132,7 @@ def evaluate_model(model_name, model_path, X, y):
 
     file_name = clean_filename(model_name)
 
+    # save confusion matrix figure
     disp = ConfusionMatrixDisplay(confusion_matrix=cm)
     disp.plot()
     plt.title(f"{model_name} Confusion Matrix")
@@ -116,6 +143,7 @@ def evaluate_model(model_name, model_path, X, y):
     )
     plt.close()
 
+    # save ROC curve with the AUC value on the graph
     fpr, tpr, _ = roc_curve(y, y_prob)
 
     plt.figure(figsize=(7, 6))
@@ -132,6 +160,7 @@ def evaluate_model(model_name, model_path, X, y):
     )
     plt.close()
 
+    # save precision-recall curve with the PR AUC value on the graph
     precision_curve, recall_curve, _ = precision_recall_curve(y, y_prob)
 
     plt.figure(figsize=(7, 6))
@@ -158,6 +187,12 @@ def evaluate_model(model_name, model_path, X, y):
 
 
 def main():
+    """
+    Runs the full evaluation workflow for all the models.
+
+    This makes the results folders, loads the data, evaluates each model that
+    exists, and then saves the final metrics and plots.
+    """
     os.makedirs(RESULTS_DIR, exist_ok=True)
     os.makedirs(METRICS_DIR, exist_ok=True)
 
@@ -165,6 +200,7 @@ def main():
 
     results = []
 
+    # go through each model and evaluate it if the file exists
     for model_name, model_path in MODELS.items():
         result = evaluate_model(model_name, model_path, X, y)
         if result is not None:
@@ -182,6 +218,7 @@ def main():
         "model_results.csv",
     )
 
+    # save the metrics in CSV form so they are easier to use in the report
     results_df.to_csv(safora_results_path, index=False)
     results_df.to_csv(model_results_path, index=False)
 

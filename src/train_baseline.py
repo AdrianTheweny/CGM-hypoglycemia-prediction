@@ -1,15 +1,19 @@
+import os
+import joblib
 import pandas as pd
+
 from sklearn.model_selection import train_test_split
 from sklearn.linear_model import LogisticRegression
 from sklearn.ensemble import RandomForestClassifier, GradientBoostingClassifier
 from sklearn.metrics import roc_auc_score, classification_report
 
-# load dataset
-df = pd.read_csv("data/processed/8May_labeled_model_ready_cgm_30patient_subset.csv")
 
-# split features and labels
-print(df.columns)
+DATA_PATH = "data/processed/8May_labeled_model_ready_cgm_30patient_subset.csv"
+MODEL_DIR = "results/models"
 
+os.makedirs(MODEL_DIR, exist_ok=True)
+
+# features used for training
 feature_cols = [
     "glucose_t_minus_55",
     "glucose_t_minus_50",
@@ -27,12 +31,17 @@ feature_cols = [
     "glucose_slope_60min"
 ]
 
+# load dataset
+df = pd.read_csv(DATA_PATH)
+
+print(df.columns)
+
 X = df[feature_cols]
 y = df["label"]
 
 print(y.value_counts())
 
-# train/test split
+# split data
 X_train, X_test, y_train, y_test = train_test_split(
     X,
     y,
@@ -58,6 +67,12 @@ models = {
     )
 }
 
+
+def clean_filename(name):
+    """Convert model names into filenames."""
+    return name.lower().replace(" ", "_")
+
+
 for name, model in models.items():
 
     print(f"\n--- {name} ---")
@@ -71,3 +86,13 @@ for name, model in models.items():
 
     print("ROC AUC:", auc)
     print(classification_report(y_test, y_pred))
+
+    # save the trained model so the evaluation script can use it later
+    model_filename = clean_filename(name) + ".pkl"
+    model_path = os.path.join(MODEL_DIR, model_filename)
+
+    joblib.dump(model, model_path)
+
+    print(f"Saved model to: {model_path}")
+
+print("\nFinished training all baseline models.")
