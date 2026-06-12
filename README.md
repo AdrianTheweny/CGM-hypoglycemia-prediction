@@ -64,3 +64,21 @@ Input data: `data/processed/8May_labeled_model_ready_cgm_30patient_subset.csv`
 
 Features include rolling glucose readings (t-55 to t-0 minutes), 60-minute
 rolling mean, and 60-minute glucose slope.
+
+
+## Team Contributions
+
+- **Adrian** – Repo/folder structure, shared data format, baseline modeling
+  (Logistic Regression / Random Forest / Gradient Boosting), final pipeline
+  integration across all components.
+- **Sarah** – Data preprocessing: loading REPLACE-BG CGM data, cleaning
+  timestamps, handling missing values/gaps, sorting by patient/time, reducing
+  to a 30-50 patient subset.
+- **Jonathon** – Feature engineering and labeling: 1-hour CGM windows,
+  hypoglycemia labels (next 40 min), features including rolling glucose
+  values, slope, and rolling mean.
+- **Safora** – Model evaluation: ROC AUC, PR AUC, confusion matrix,
+  sensitivity/recall, and simplified event-based detection.
+- **Dani** – Figures and writeup: ROC/PR curve plots, example CGM traces with
+  predicted alarms, report drafting (background, methods, results), and
+  comparison to the original paper's approach.
