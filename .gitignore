@@ -216,3 +216,6 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+data/processed/8May_labeled_model_ready_cgm_30patient_subset.csv
+results/models/random_forest.pkl
+.DS_Store
